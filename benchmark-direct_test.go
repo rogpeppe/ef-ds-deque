@@ -30,14 +30,13 @@ import (
 var tests = []struct {
 	count int
 }{
-	{count: 0},
 	{count: 1},
 	{count: 10},
 	{count: 100},
-	{count: 1000},    // 1k
-	{count: 10000},   //10k
-	{count: 100000},  // 100k
-	{count: 1000000}, // 1mi
+	{count: 1000}, // 1k
+	//	{count: 10000},   //10k
+	//	{count: 100000},  // 100k
+	//	{count: 1000000}, // 1mi
 }
 
 var (
@@ -320,6 +319,103 @@ func BenchmarkSlowDecreaseDequeStackDirect(b *testing.B) {
 
 	for d.Len() > 0 {
 		tmp, tmp2 = d.PopBack()
+	}
+}
+
+func BenchmarkMicroserviceDequeQueue(b *testing.B) {
+	var q *deque.Deque
+	benchmarkMicroservice(
+		b,
+		func() {
+			q = new(deque.Deque)
+		},
+		func(v interface{}) {
+			q.PushBack(v)
+		},
+		func() (interface{}, bool) {
+			return q.PopFront()
+		},
+		func() bool {
+			return q.Len() == 0
+		},
+	)
+}
+
+func BenchmarkMicroserviceDequeStack(b *testing.B) {
+	var q *deque.Deque
+	benchmarkMicroservice(
+		b,
+		func() {
+			q = new(deque.Deque)
+		},
+		func(v interface{}) {
+			q.PushBack(v)
+		},
+		func() (interface{}, bool) {
+			return q.PopBack()
+		},
+		func() bool {
+			return q.Len() == 0
+		},
+	)
+}
+
+func benchmarkMicroservice(b *testing.B, initInstance func(), push func(v interface{}), pop func() (interface{}, bool), empty func() bool) {
+	for i, test := range tests {
+		// Doesn't run the first (0 items) as 0 items makes no sense for this test.
+		if i == 0 {
+			continue
+		}
+
+		b.Run(strconv.Itoa(test.count), func(b *testing.B) {
+			for n := 0; n < b.N; n++ {
+				initInstance()
+
+				// Simulate stable traffic
+				for i := 0; i < test.count; i++ {
+					push(getTestValue(i))
+					pop()
+				}
+
+				// Simulate slowly increasing traffic
+				for i := 0; i < test.count; i++ {
+					push(getTestValue(i))
+					push(getTestValue(i))
+					pop()
+				}
+
+				// Simulate slowly decreasing traffic, bringing traffic back to normal
+				for i := 0; i < test.count; i++ {
+					pop()
+					if !empty() {
+						pop()
+					}
+					push(getTestValue(i))
+				}
+
+				// Simulate quick traffic spike (DDOS attack, etc)
+				for i := 0; i < test.count; i++ {
+					push(getTestValue(i))
+				}
+
+				// Simulate stable traffic while at high traffic
+				for i := 0; i < test.count; i++ {
+					push(getTestValue(i))
+					pop()
+				}
+
+				// Simulate going back to normal (DDOS attack fended off)
+				for i := 0; i < test.count; i++ {
+					pop()
+				}
+
+				// Simulate stable traffic (now that is back to normal)
+				for i := 0; i < test.count; i++ {
+					push(getTestValue(i))
+					pop()
+				}
+			}
+		})
 	}
 }
 
